@@ -30,6 +30,8 @@ function y = flow(flowrate)
     k_Po = 0.13;                                %Polyurethane tube [W/(m*K)]
     k_PVC = 0.19;                               %PVC thermal conduc [W/(mK)]
     k_foil = 0.04;                              %Polyethylene foam foil [W/(mK)]
+    k_glass = 0.78;                             %Thermal conductivity of the glass plate [J/s mK]
+
 %Specific heat
     c_water = 4186;                             %[J/kgK]
     c_Cu = 386;                                 %[J/kgK]
@@ -38,10 +40,11 @@ function y = flow(flowrate)
 %Measurements
     D_Cu = 0.012;                               %Diameter of the copper tube [m]
     D_PolyTube = 0.008;                         %Diameter of the polyurathane pump tubes [m]
+    d_glass = 0.004;                            %Thickness of the glass plate [m]
     R_Cu1 = 0.005;                              %Inner radius of the copper tube [m]
     R_Cu2 = 0.006;                              %Outer radius of  the copper tube [m]
     V_air = 0.04911;                            %Volume of the air in the solar collector [m^3]
-    V_Al = 8.96*10^(-5);                         %Total volume of the aluminum tape
+    V_Al = 8.96*10^(-5);                        %Total volume of the aluminum tape
     L_Cu_SC = 6.63;                             %Length of the copper tube in the solar collector [m]
     L_TubeAir = 5.81973313;                     %Total length of tube that's exposed to the air [m]
     L_TubeTempex = 0.4446626;                   %Total length of tube that's exposed to the tempex [m]
@@ -71,8 +74,10 @@ function y = flow(flowrate)
     A_AirCu = 1.4*pi*D_Cu + 3*4.9594762*10^(-3) + 0.05*pi*D_Cu + 2*0.1*pi*D_Cu; %Area of the copper tube that's exposed to the air
     A_AirTape = 0.31;                           %Area of the aluminum tape that is exposed to the air
     A_AirSS = 2*(1.64*0.67)+2*(0.67*0.065)+2*(0.065*1.72); %Area of solar collector that is exposed to the air
-    A_frame = 2*(0.67*0.065)+2*(0.065*1.72); %Area of sides touching pinewood
-    A_vessel = 2*pi*(R_PVC2)^2 + L_Tube_HV*2*pi*R_PVC2;
+    A_frame = 2*(0.67*0.065)+2*(0.065*1.72);    %Area of sides touching pinewood
+    A_vessel = 2*pi*(R_PVC2)^2 + L_Tube_HV*2*pi*R_PVC2
+    A_glass = 0.67*(1.640+0.080);               %Area of the glass plate [m]
+
 %Intensity
     I_sun = 1000;                               %Intensity of the artificial sun [W/m^2]
 %Temperatures
@@ -234,11 +239,12 @@ for t=0:t_step:t_end
     m_SC_new = m_flow;                                                      %Mass of water added to the solar collector during t_step
     T_SC_out = (m_SC_old*c_water*T_SC_out + m_Cu*c_Cu*T_SC_out + m_SC_new*c_water*T_SC_in)/(m_SC_old*c_water + m_Cu*c_Cu + m_SC_new*c_water);
     
-    dQdt_RadOut = -e_Cu*sigma*A_AirCu*(T_SC_out^4 - T_air^4);               %Heat loss due to radiation
-    dQdt_CondOut = 0;%%2*pi*k_Cu*L_TubeAir*((T_SC_out-T_sur)/R_Cu2 - R_Cu1); %Heat loss due to conduction (assuming that the air and tempex remain at temperature T_sur)
+    dQdt_CondOut = 0;
+    dQdt_RadOut = e_Cu*sigma*A_AirCu*(T_SC_out^4 - T_air^4);               %Heat loss due to radiation
+%    dQdt_CondOut = 2*pi*k_Cu*L_CuTube*((T_SC_out-T_air)/(log(R_Cu2/R_Cu1))); %Heat loss due to conduction in the copper tube
     dQdt_Cu_conv = h_air*A_AirCu*(T_SC_out-T_air);                          %Heat loss due to convection
   
-    dQdt_SC_total = dQdt_RadCu + dQdt_RadOut + dQdt_CondOut - dQdt_Cu_conv;  %Total energy
+    dQdt_SC_total = dQdt_RadCu - dQdt_RadOut - dQdt_CondOut - dQdt_Cu_conv;  %Total energy
     
     delta_T = (dQdt_SC_total*t_step)/(m_SC_water*c_water + m_Cu*c_Cu);
     T_SC_out=T_SC_out+delta_T;
@@ -270,16 +276,22 @@ for t=0:t_step:t_end
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %            Air Temperature           %
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    %To calculate dQdt_air_total, first the temperature of the aluminum tape has to be determined:
+     %To calculate dQdt_air_total, first the temperature of the aluminum tape has to be determined:
     dQdt_Al_conv = h_air*A_AirTape*(T_Al-T_air);
     dQdt_Al_total = dQdt_RadAl_in - dQdt_Al_conv;
     
-    delta_T = (dQdt_Al_total*t_step)/(m_Al*c_Al);
+    if (T_Al < 353)
+        delta_T = (dQdt_Al_total*t_step)/(m_Al*c_Al);
+    else
+        delta_T = 0;
+    end
+    
     T_Al = T_Al + delta_T;
     
-    %Now for the air temperature:
-    dQdt_CondEnv = -(k_wood * A_frame * (T_air - T_sur))/dx;                %Heat loss to the environment by conduction
-    dQdt_air_total = dQdt_Al_conv + dQdt_CondEnv;
+    %Air temperature:
+    dQdt_CondEnv = -(k_wood * A_frame * (T_air - T_sur))/dx;                %Heat loss to the environment through the wood by conduction
+    dQdt_CondGlass = -(k_glass*A_glass*(T_air - T_sur))/d_glass;            %Heat loss to the environment through the glass by conduction
+    dQdt_air_total = dQdt_Al_conv + dQdt_CondEnv + dQdt_CondGlass + dQdt_CondOut;
 
     
     delta_T = (dQdt_air_total*t_step)/(m_air*c_air);
